@@ -1,22 +1,45 @@
+import os
+import threading
 import speech_recognition as sr
-from openai import OpenAI
+import requests
+from gtts import gTTS
+from playsound import playsound
 
-# Your actual API key
-api_key = "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"
+# Weather API details
+WEATHER_API_KEY = '135df778cb684e289dc110848243107'
+NEWS_API_KEY = '015af73c404b43b2b4119c94553f928d'
+CITY = 'Peterborough'
 
-# Initialize OpenAI client with your API key
-client = OpenAI(api_key=api_key)
+def get_weather():
+    url = f"http://api.weatherapi.com/v1/current.json?key={WEATHER_API_KEY}&q={CITY}&aqi=no"
+    response = requests.get(url).json()
+    condition = response['current']['condition']['text']
+    temperature = response['current']['temp_c']
+    return f"The weather in {CITY} is {condition} with a temperature of {temperature}°C."
 
-def generate_response(prompt):
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=150
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        return f"Error generating response: {e}"
+def get_news():
+    url = f"https://newsapi.org/v2/top-headlines?q={CITY}&apiKey={NEWS_API_KEY}"
+    response = requests.get(url).json()
+    articles = response.get('articles', [])
+    if articles:
+        title = articles[0]['title']
+        source = articles[0]['source']['name']
+        return f"Here's the latest news: {title} - {source}"
+    else:
+        return "No news available."
+
+def play_audio(filename):
+    playsound(filename)
+    os.remove(filename)
+
+def speak_response(response):
+    tts = gTTS(text=response, lang='en')
+    filename = "response.mp3"
+    tts.save(filename)
+    
+    # Use a thread to play the audio file
+    audio_thread = threading.Thread(target=play_audio, args=(filename,))
+    audio_thread.start()
 
 def listen_for_command():
     recognizer = sr.Recognizer()
@@ -25,18 +48,31 @@ def listen_for_command():
         audio = recognizer.listen(source)
         try:
             command = recognizer.recognize_google(audio)
+            print(f"Recognized command: {command}")
             return command
         except sr.UnknownValueError:
-            return "Sorry, I did not understand the audio."
+            print("Google Speech Recognition could not understand audio")
+            return None
         except sr.RequestError as e:
-            return f"Sorry, there was an error with the request: {e}"
+            print(f"Could not request results from Google Speech Recognition service; {e}")
+            return None
+
+def process_command(command):
+    if 'weather' in command:
+        response = get_weather()
+    elif 'news' in command:
+        response = get_news()
+    else:
+        response = "I didn't understand the command."
+    return response
 
 def main():
     while True:
         command = listen_for_command()
-        print("Recognized command:", command)
-        response = generate_response(command)
-        print("Processed Command:", response)
+        if command:
+            response = process_command(command)
+            print(f"Processed Command: {response}")
+            speak_response(response)
 
 if __name__ == "__main__":
     main()
